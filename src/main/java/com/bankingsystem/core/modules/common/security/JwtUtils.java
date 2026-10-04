@@ -40,7 +40,9 @@ public class JwtUtils {
     public String generateJwtToken(String username, String roleName) {
         return Jwts.builder()
                 .setId(java.util.UUID.randomUUID().toString())
+                .setIssuer(jwtProperties.getIssuer())
                 .setSubject(username)
+                .setAudience(jwtProperties.getAudience())
                 .claim("role", roleName)
                 .setIssuedAt(Date.from(clock.instant()))
                 .setExpiration(new Date(clock.millis() + jwtProperties.getExpirationMs()))
@@ -74,6 +76,8 @@ public class JwtUtils {
             Claims claims = Jwts.parserBuilder()
                     .setSigningKey(getSigningKey())
                     .setClock(() -> Date.from(clock.instant()))
+                    .requireIssuer(jwtProperties.getIssuer())
+                    .requireAudience(jwtProperties.getAudience())
                     .build()
                     .parseClaimsJws(token)
                     .getBody();

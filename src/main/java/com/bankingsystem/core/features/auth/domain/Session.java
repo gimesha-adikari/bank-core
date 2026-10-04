@@ -18,7 +18,7 @@ public class Session {
     private User user;
 
     @Column(name = "token", nullable = false, unique = true, length = 255)
-    private String token;
+    private String tokenFingerprint;
 
     @Column(name = "login_time", nullable = false)
     private LocalDateTime loginTime;
@@ -53,12 +53,12 @@ public class Session {
         this.user = user;
     }
 
-    public String getToken() {
-        return token;
+    public String getTokenFingerprint() {
+        return tokenFingerprint;
     }
 
-    public void setToken(String token) {
-        this.token = token;
+    public void setTokenFingerprint(String tokenFingerprint) {
+        this.tokenFingerprint = tokenFingerprint;
     }
 
     public LocalDateTime getLoginTime() {

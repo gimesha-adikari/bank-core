@@ -34,6 +34,21 @@ runtime state out of Git. Configure the AI/KYC service URL externally (for
 example with `ML_BASE_URL`); this repository does not read the AI service from a
 filesystem path.
 
+## JWT issuer and audience
+
+`JWT_ISSUER` defaults to `bank-core` and `JWT_AUDIENCE` defaults to
+`bank-core-api`. These are public logical identifiers, not secrets. Every
+concurrently serving bank-core instance must use the same exact values.
+
+AUTH-008 is a hard session cutover: newly issued JWTs require both claims, and
+new Session rows store a 64-character lowercase SHA-256 fingerprint of the
+exact bearer JWT in the existing `sessions.token` column. Existing raw-token
+Session rows remain unchanged and cannot authorize legacy unscoped tokens.
+Old and new bank-core versions must not concurrently serve authenticated
+traffic; all old instances must be stopped or drained before authenticated
+traffic resumes on the strict version. Users with legacy tokens must sign in
+again.
+
 ## Build and test
 
 Run from this repository root:

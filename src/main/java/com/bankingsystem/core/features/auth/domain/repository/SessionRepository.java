@@ -13,7 +13,7 @@ import java.util.UUID;
 
 @Repository
 public interface SessionRepository extends JpaRepository<Session, UUID> {
-    Optional<Session> findByToken(String token);
+    Optional<Session> findByTokenFingerprint(String tokenFingerprint);
 
     @Modifying
     @Transactional
