@@ -1,6 +1,7 @@
 package com.bankingsystem.core.features.auth.application.impl;
 
 import com.bankingsystem.core.modules.common.config.AppProperties;
+import com.bankingsystem.core.modules.common.security.SessionTokenFingerprint;
 import com.bankingsystem.core.features.auth.interfaces.dto.ChangePasswordRequest;
 import com.bankingsystem.core.features.auth.interfaces.dto.RegisterRequest;
 import com.bankingsystem.core.features.accesscontrol.domain.Role;
@@ -169,10 +170,11 @@ public class AuthServiceImpl implements AuthService {
     public void createSession(String token, String username, String ipAddress) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+        String tokenFingerprint = SessionTokenFingerprint.from(token);
 
         Session session = new Session();
         session.setUser(user);
-        session.setToken(token);
+        session.setTokenFingerprint(tokenFingerprint);
         session.setLoginTime(LocalDateTime.now(clock));
         session.setExpiryTime(LocalDateTime.now(clock).plusHours(2));
         session.setIsActive(true);
@@ -186,7 +188,8 @@ public class AuthServiceImpl implements AuthService {
         if (token == null || token.isBlank()) {
             return false;
         }
-        return sessionRepository.findByToken(token)
+        String tokenFingerprint = SessionTokenFingerprint.from(token);
+        return sessionRepository.findByTokenFingerprint(tokenFingerprint)
                 .map(session -> Boolean.TRUE.equals(session.getIsActive())
                         && session.getExpiryTime() != null
                         && session.getExpiryTime().isAfter(LocalDateTime.now(clock)))
@@ -195,7 +198,11 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void logout(String token) {
-        Optional<Session> sessionOpt = sessionRepository.findByToken(token);
+        if (token == null || token.isBlank()) {
+            throw new RuntimeException("Invalid session or already logged out.");
+        }
+        String tokenFingerprint = SessionTokenFingerprint.from(token);
+        Optional<Session> sessionOpt = sessionRepository.findByTokenFingerprint(tokenFingerprint);
         if (sessionOpt.isPresent()) {
             Session session = sessionOpt.get();
             if (!session.getIsActive()) {

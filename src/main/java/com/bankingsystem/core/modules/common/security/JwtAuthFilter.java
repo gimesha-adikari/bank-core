@@ -96,7 +96,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return false;
         }
 
-        Optional<Session> sessionOpt = sessionRepository.findByToken(token);
+        String tokenFingerprint = SessionTokenFingerprint.from(token);
+        Optional<Session> sessionOpt = sessionRepository.findByTokenFingerprint(tokenFingerprint);
         if (sessionOpt.isEmpty()) {
             reject(response);
             return false;

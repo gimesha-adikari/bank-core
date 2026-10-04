@@ -56,6 +56,8 @@ class AuthenticationBeanWiringTest {
             JwtProperties properties = new JwtProperties();
             properties.setSecret("test-jwt-secret-012345678901234567890123");
             properties.setExpirationMs(86_400_000L);
+            properties.setIssuer("bank-core");
+            properties.setAudience("bank-core-api");
             return properties;
         }
 

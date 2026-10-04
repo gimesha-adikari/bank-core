@@ -14,11 +14,16 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.access.ExceptionTranslationFilter;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -43,7 +48,8 @@ class JwtAuthFilterTest {
         UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
         SessionRepository sessions = mock(SessionRepository.class);
         when(jwtUtils.parseAndValidate(TOKEN)).thenReturn(validClaims());
-        when(sessions.findByToken(TOKEN)).thenReturn(Optional.of(session(LocalDateTime.now(Clock.systemUTC()).minusSeconds(1))));
+        when(sessions.findByTokenFingerprint(SessionTokenFingerprint.from(TOKEN)))
+                .thenReturn(Optional.of(session(LocalDateTime.now(Clock.systemUTC()).minusSeconds(1))));
         when(users.loadUserByUsername("alice")).thenReturn(userDetails(true));
         SecurityContextHolder.getContext().setAuthentication(
                 new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
@@ -63,7 +69,8 @@ class JwtAuthFilterTest {
         SessionRepository sessions = mock(SessionRepository.class);
         Clock clock = Clock.fixed(Instant.parse("2026-10-02T00:00:00Z"), ZoneOffset.UTC);
         when(jwtUtils.parseAndValidate(TOKEN)).thenReturn(validClaims());
-        when(sessions.findByToken(TOKEN)).thenReturn(Optional.of(session(LocalDateTime.now(clock))));
+        when(sessions.findByTokenFingerprint(SessionTokenFingerprint.from(TOKEN)))
+                .thenReturn(Optional.of(session(LocalDateTime.now(clock))));
 
         JwtAuthFilter filter = new JwtAuthFilter(jwtUtils, users, sessions, clock);
         MockHttpServletResponse response = invoke(filter, "Bearer " + TOKEN, new AtomicBoolean());
@@ -79,7 +86,7 @@ class JwtAuthFilterTest {
         when(jwtUtils.parseAndValidate(TOKEN)).thenReturn(validClaims());
         Session inactive = session(LocalDateTime.now(Clock.systemUTC()).plusMinutes(5));
         inactive.setIsActive(false);
-        when(sessions.findByToken(TOKEN)).thenReturn(Optional.of(inactive));
+        when(sessions.findByTokenFingerprint(SessionTokenFingerprint.from(TOKEN))).thenReturn(Optional.of(inactive));
 
         JwtAuthFilter filter = new JwtAuthFilter(jwtUtils, users, sessions);
         MockHttpServletResponse response = invoke(filter, "Bearer " + TOKEN, new AtomicBoolean());
@@ -93,7 +100,7 @@ class JwtAuthFilterTest {
         UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
         SessionRepository sessions = mock(SessionRepository.class);
         when(jwtUtils.parseAndValidate(TOKEN)).thenReturn(validClaims());
-        when(sessions.findByToken(TOKEN)).thenReturn(Optional.empty());
+        when(sessions.findByTokenFingerprint(SessionTokenFingerprint.from(TOKEN))).thenReturn(Optional.empty());
 
         JwtAuthFilter filter = new JwtAuthFilter(jwtUtils, users, sessions);
         MockHttpServletResponse response = invoke(filter, "Bearer " + TOKEN, new AtomicBoolean());
@@ -118,6 +125,8 @@ class JwtAuthFilterTest {
         JwtProperties properties = new JwtProperties();
         properties.setSecret("test-jwt-secret-012345678901234567890123");
         properties.setExpirationMs(-1);
+        properties.setIssuer("bank-core");
+        properties.setAudience("bank-core-api");
         JwtUtils jwtUtils = new JwtUtils(properties);
         UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
         SessionRepository sessions = mock(SessionRepository.class);
@@ -134,7 +143,8 @@ class JwtAuthFilterTest {
         UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
         SessionRepository sessions = mock(SessionRepository.class);
         when(jwtUtils.parseAndValidate(TOKEN)).thenReturn(validClaims());
-        when(sessions.findByToken(TOKEN)).thenReturn(Optional.of(session(LocalDateTime.now(Clock.systemUTC()).plusMinutes(5))));
+        when(sessions.findByTokenFingerprint(SessionTokenFingerprint.from(TOKEN)))
+                .thenReturn(Optional.of(session(LocalDateTime.now(Clock.systemUTC()).plusMinutes(5))));
         when(users.loadUserByUsername("alice")).thenReturn(userDetails(true));
         AtomicBoolean continued = new AtomicBoolean();
 
@@ -152,7 +162,8 @@ class JwtAuthFilterTest {
         UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
         SessionRepository sessions = mock(SessionRepository.class);
         when(jwtUtils.parseAndValidate(TOKEN)).thenReturn(validClaims());
-        when(sessions.findByToken(TOKEN)).thenReturn(Optional.of(session(LocalDateTime.now(Clock.systemUTC()).plusMinutes(5))));
+        when(sessions.findByTokenFingerprint(SessionTokenFingerprint.from(TOKEN)))
+                .thenReturn(Optional.of(session(LocalDateTime.now(Clock.systemUTC()).plusMinutes(5))));
         when(users.loadUserByUsername("alice")).thenReturn(userDetails(false));
         AtomicBoolean continued = new AtomicBoolean();
 
@@ -168,6 +179,8 @@ class JwtAuthFilterTest {
         JwtProperties properties = new JwtProperties();
         properties.setSecret("test-jwt-secret-012345678901234567890123");
         properties.setExpirationMs(60_000);
+        properties.setIssuer("bank-core");
+        properties.setAudience("bank-core-api");
         JwtUtils jwtUtils = new JwtUtils(properties);
         UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
         SessionRepository sessions = mock(SessionRepository.class);
@@ -185,6 +198,8 @@ class JwtAuthFilterTest {
         JwtProperties properties = new JwtProperties();
         properties.setSecret("test-jwt-secret-012345678901234567890123");
         properties.setExpirationMs(60_000);
+        properties.setIssuer("bank-core");
+        properties.setAudience("bank-core-api");
         JwtUtils jwtUtils = new JwtUtils(properties);
         UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
         SessionRepository sessions = mock(SessionRepository.class);
@@ -199,6 +214,57 @@ class JwtAuthFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(401);
         org.mockito.Mockito.verifyNoInteractions(sessions);
+    }
+
+    @Test
+    void legacyTokenIsRejectedBeforeSessionOrUserLookup() throws Exception {
+        assertRejectedBeforeStateAccess(signedToken(null, null));
+    }
+
+    @Test
+    void wrongIssuerIsRejectedBeforeSessionOrUserLookup() throws Exception {
+        assertRejectedBeforeStateAccess(signedToken("wrong-core", "bank-core-api"));
+    }
+
+    @Test
+    void missingIssuerIsRejectedBeforeSessionOrUserLookup() throws Exception {
+        assertRejectedBeforeStateAccess(signedToken(null, "bank-core-api"));
+    }
+
+    @Test
+    void wrongAudienceIsRejectedBeforeSessionOrUserLookup() throws Exception {
+        assertRejectedBeforeStateAccess(signedToken("bank-core", "another-api"));
+    }
+
+    @Test
+    void missingAudienceIsRejectedBeforeSessionOrUserLookup() throws Exception {
+        assertRejectedBeforeStateAccess(signedToken("bank-core", null));
+    }
+
+    @Test
+    void validScopedTokenLooksUpFingerprintAndAuthenticates() throws Exception {
+        JwtProperties properties = new JwtProperties();
+        properties.setSecret("test-jwt-secret-012345678901234567890123");
+        properties.setExpirationMs(60_000);
+        properties.setIssuer("bank-core");
+        properties.setAudience("bank-core-api");
+        JwtUtils jwtUtils = new JwtUtils(properties);
+        UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
+        SessionRepository sessions = mock(SessionRepository.class);
+        String token = signedToken("bank-core", "bank-core-api");
+        String fingerprint = SessionTokenFingerprint.from(token);
+        when(sessions.findByTokenFingerprint(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(Optional.of(session(LocalDateTime.now(Clock.systemUTC()).plusMinutes(5))));
+        when(users.loadUserByUsername("alice")).thenReturn(userDetails(true));
+        AtomicBoolean continued = new AtomicBoolean();
+
+        JwtAuthFilter filter = new JwtAuthFilter(jwtUtils, users, sessions);
+        MockHttpServletResponse response = invoke(filter, "Bearer " + token, continued);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(continued).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        org.mockito.Mockito.verify(sessions).findByTokenFingerprint(fingerprint);
     }
 
     @Test
@@ -270,6 +336,47 @@ class JwtAuthFilterTest {
         session.setExpiryTime(expiry);
         return session;
     }
+
+    private static void assertRejectedBeforeStateAccess(String token) throws Exception {
+        JwtProperties properties = new JwtProperties();
+        properties.setSecret("test-jwt-secret-012345678901234567890123");
+        properties.setExpirationMs(60_000);
+        properties.setIssuer("bank-core");
+        properties.setAudience("bank-core-api");
+        JwtUtils jwtUtils = new JwtUtils(properties);
+        UserDetailsServiceImpl users = mock(UserDetailsServiceImpl.class);
+        SessionRepository sessions = mock(SessionRepository.class);
+        AtomicBoolean continued = new AtomicBoolean();
+
+        JwtAuthFilter filter = new JwtAuthFilter(jwtUtils, users, sessions);
+        MockHttpServletResponse response = invoke(filter, "Bearer " + token, continued);
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(continued).isFalse();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(sessions, users);
+    }
+
+    private static String signedToken(String issuer, String audience) {
+        Instant now = Instant.now();
+        var builder = Jwts.builder()
+                .setId("test-jti")
+                .setSubject("alice")
+                .claim("role", "CUSTOMER")
+                .setIssuedAt(Date.from(now))
+                .setExpiration(Date.from(now.plusSeconds(300)));
+        if (issuer != null) {
+            builder.setIssuer(issuer);
+        }
+        if (audience != null) {
+            builder.setAudience(audience);
+        }
+        return builder.signWith(
+                        Keys.hmacShaKeyFor("test-jwt-secret-012345678901234567890123".getBytes(StandardCharsets.UTF_8)),
+                        SignatureAlgorithm.HS256)
+                .compact();
+    }
+
 
     private static io.jsonwebtoken.Claims validClaims() {
         io.jsonwebtoken.Claims claims = claims().setSubject("alice");

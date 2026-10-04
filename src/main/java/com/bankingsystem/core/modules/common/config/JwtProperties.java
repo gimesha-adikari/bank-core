@@ -20,6 +20,8 @@ public class JwtProperties {
 
     private String secret;
     private long expirationMs;
+    private String issuer;
+    private String audience;
 
     @PostConstruct
     void validateConfiguration() {
@@ -35,6 +37,20 @@ public class JwtProperties {
         }
         if (secret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < MIN_SECRET_BYTES) {
             throw new IllegalStateException("JWT signing configuration must be at least 32 UTF-8 bytes");
+        }
+        validateIdentifier(issuer, "issuer");
+        validateIdentifier(audience, "audience");
+    }
+
+    private static void validateIdentifier(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("JWT " + name + " configuration is missing");
+        }
+        if (value.chars().anyMatch(character -> character < 0x20 || character == 0x7f)) {
+            throw new IllegalStateException("JWT " + name + " configuration contains control characters");
+        }
+        if (!value.equals(value.trim())) {
+            throw new IllegalStateException("JWT " + name + " configuration has surrounding whitespace");
         }
     }
 }
